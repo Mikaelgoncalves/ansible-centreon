@@ -3,6 +3,7 @@
 
 # import module snippets
 from ansible.module_utils.basic import AnsibleModule
+import requests
 
 ANSIBLE_METADATA = {
     'status': ['preview'],
@@ -107,34 +108,41 @@ def main():
             msg="Unable to connect to Centreon API: %s" % e.message
         )
 
-    hostgroups = centreon.hostgroups.list()
+    try:
+        hostgroups_list_result = centreon.hostgroups.list()
+    except requests.exceptions.HTTPError as e:
+        module.fail_json(msg="Unable to hostgroups list %s " % e.message)
+
+    hostgroups = [hg['name'] for hg in hostgroups_list_result["result"]]
 
     if state == "absent":
         for hg in name:
-            if hg.get('name') in hostgroups.keys():
-                s, h = centreon.hostgroups.delete(hg.get('name'))
-                if s:
+            hg_name = hg.get('name')
+            if hg_name in hostgroups:
+                try:
+                    centreon.hostgroups.delete(hg_name)
                     has_changed = True
-                else:
-                    module.fail_json(msg="Unable to delete hostgroup: %s" % h)
+                except requests.exceptions.HTTPError as e:
+                    module.fail_json(
+                        msg="Unable to delete hostgroup %s: %s" % (hg, e.message),
+                        changed=has_changed
+                    )
         if has_changed:
-            module.exit_json(msg="Hostgroups deleted %s" % hostgroups, changed=has_changed)
+            module.exit_json(msg="Hostgroups deleted %s" % name, changed=has_changed)
 
     else:
         for hg in name:
-            if hg.get('name') not in hostgroups.keys():
-                if hg.get('alias') is None:
-                    alias = hg.get('name')
-                else:
-                    alias = hg.get('alias')
-                s, h = centreon.hostgroups.add(hg.get('name'), alias)
-                if s:
+            if hg.get('name') not in hostgroups:
+                hg_name = hg.get('name')
+                hg_alias = hg.get('alias', hg_name)
+                try:
+                    centreon.hostgroups.add(hg_name, hg_alias)
                     has_changed = True
-                else:
-                    module.fail_json(msg="Unable to create hostgroup: %s" % h)
+                except requests.exceptions.HTTPError as e:
+                    module.fail_json(msg="Unable to create hostgroup: %s" % e.message)
 
         if has_changed:
-            module.exit_json(msg="Hostgroups created", changed=has_changed)
+            module.exit_json(msg="Hostgroups created %s" % name, changed=has_changed)
 
     module.exit_json(changed=has_changed)
 

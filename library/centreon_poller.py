@@ -3,6 +3,7 @@
 
 # import module snippets
 from ansible.module_utils.basic import AnsibleModule
+import requests
 
 ANSIBLE_METADATA = {
     'status': ['preview'],
@@ -98,19 +99,18 @@ def main():
             msg="Unable to connect to Centreon API: %s" % exc.message
         )
 
-    st, poller = centreon.pollers.get(instance)
-    if not st and poller is None:
-        module.fail_json(msg="Poller '%s' does not exists" % instance)
-    elif not st:
-        module.fail_json(msg="Unable to get poller list %s " % poller)
+    try:
+        poller = centreon.poller.get(instance)
+    except requests.exceptions.HTTPError as e:
+        module.fail_json(msg="Unable to get poller list %s " % e.message)
 
     if action == "applycfg":
-        s, p = poller.applycfg()
-        if s:
+        try:
+            centreon.poller.applycfg(instance)
             has_changed = True
-            module.exit_json(msg="Applied config on poller", changed=has_changed)
-        else:
-            module.fail_json(msg=p)
+        except requests.exceptions.HTTPError as e:
+            module.fail_json(msg='Failed while reloading poller: %s' % e.message, changed=has_changed)
+        module.exit_json(msg="Applied config on poller", changed=has_changed)
 
     module.exit_json(changed=has_changed)
 
