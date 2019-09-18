@@ -134,6 +134,7 @@ def main():
             password=dict(default='centreon', no_log=True),
             name=dict(required=True),
             hosttemplates=dict(type='list', default=[]),
+            hosttemplates_action=dict(default='add', choices=['add', 'set']),
             alias=dict(default=None),
             ipaddr=dict(default=None),
             instance=dict(default='Central'),
@@ -157,6 +158,7 @@ def main():
     alias = module.params["alias"]
     ipaddr = module.params["ipaddr"]
     hosttemplates = module.params["hosttemplates"]
+    hosttemplates_action = module.params["hosttemplates_action"]
     instance = module.params["instance"]
     hostgroups = module.params["hostgroups"]
     hostgroups_action = module.params["hostgroups_action"]
@@ -188,8 +190,10 @@ def main():
     except requests.exceptions.HTTPError as e:
         data.append("Host %s not found" % name)
 
+    is_creation = False
 
     if host is None and state == "present":
+        is_creation = True
         try:
             data.append("Add %s %s %s %s %s %s" %
                         (name, alias, ipaddr, hosttemplates, instance, hostgroups))
@@ -272,7 +276,7 @@ def main():
             module.fail_json(msg='Unable to change alias: %s' % e.message, changed=has_changed)
 
     #### HostGroup
-    if hostgroups:
+    if hostgroups and not is_creation:
         try:
             gethostgroup_result = centreon.host.gethostgroup(name)
         except requests.exceptions.HTTPError as e:
@@ -305,7 +309,7 @@ def main():
                     )
 
     #### HostTemplates
-    if hosttemplates:
+    if hosttemplates and not is_creation:
         try:
             gettemplate_result = centreon.host.gettemplate(name)
         except requests.exceptions.HTTPError as e:
@@ -318,20 +322,46 @@ def main():
         for parent_ht in gettemplate_result['result']:
             parent_template_list.append(parent_ht['name'])
 
-        new_template_list = list(set(hosttemplates) - set(template_list))
-        data.append(new_template_list)
-        if new_template_list:
+        is_there_any_change = False
+
+        if hosttemplates_action == 'add':
+            # NB: they are returned in reverse order
+            current_templates = parent_template_list[::-1]
+            # NB: we assume those also are configured in reverse order, to mimick
+            #     Centreon GUI
+            new_templates = hosttemplates[::-1]
+            new_template_list = []
+            for curr_t in current_templates:
+                if curr_t in new_templates:
+                    i = new_templates.index(curr_t)
+                    new_template_list.extend(new_templates[0:i+1])
+                    new_templates = new_templates[i+1:]
+                else:
+                    new_template_list.append(curr_t)
+            new_template_list.extend(new_templates)
+            new_template_list = new_template_list[::-1]
+        elif hosttemplates_action == 'set':
+            new_template_list = hosttemplates
+
+        is_there_any_change = len(parent_template_list) != len(new_template_list)
+        if not is_there_any_change:
+            for i, ht in enumerate(parent_template_list):
+                if ht != new_template_list[i]:
+                    is_there_any_change = True
+                    break
+
+        if is_there_any_change:
             try:
-                centreon.host.addtemplate(new_template)
+                centreon.host.settemplate(name, new_template_list)
                 has_changed = True
-                data.append("Add parent HostTemplate: %s" % new_template_list)
+                data.append("%s parent HostTemplate: %s" % (hosttemplates_action, new_templates))
             except requests.exceptions.HTTPError as e:
                 module.fail_json(
-                    msg="Unable to add templates: %s" % e.message,
+                    msg="Unable to %s parent templates: %s" % (hosttemplates_action, e.message),
                     changed=has_changed
                 )
             try:
-                centreon.host.applytemplate(host)
+                centreon.host.applytemplate(name)
                 has_changed = True
             except requests.exceptions.HTTPError as e:
                 module.fail_json(msg='Failed while applying templates on host %s - %s' % (name, e.message), changed=has_changed)
