@@ -9,14 +9,14 @@ An Ansible module to configure Centreon
 ## Requirements ##
 
 * Ansible >= 2.4.0 (ansible)
-* centreonapi >= 0.1.3 
+* centreonapi
 
 ###Install ##
 
 ### Install CentreonAPI 
 
 ```shell
-pip install centreonapi>=0.1.3
+pip install git+https://github.com/Transatel/centreon-sdk-python.git
 ```
 
 ### Install Ansible-modules-centreon
@@ -24,9 +24,8 @@ pip install centreonapi>=0.1.3
 ```shell
 $ cd YourPlayBookProject
 $ cat >> galaxy_requirements.yml
-- src: https://github.com/guillaumewatteeux/ansible-centreon.git
+- src: https://github.com/Mikaelgoncalves/ansible-centreon.git
   scm: git
-  version: dev
   name: ansible-modules-centreon
 
 CTRL+D
